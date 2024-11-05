@@ -1,8 +1,9 @@
 import os
 import zipfile
-import shutil
+import io
 import yaml
 import pwd
+
 
 class ShellEmulator:
     def __init__(self, config_file):
@@ -11,7 +12,6 @@ class ShellEmulator:
         self.username = self.config.get('username', 'user')
         self.fs_path = self.config['fs_path']
         self.current_dir = '/'
-        self.mount_point = '/tmp/emulator_fs'
 
         # Инициализация виртуальной файловой системы
         self.init_fs()
@@ -21,13 +21,10 @@ class ShellEmulator:
             return yaml.safe_load(file)
 
     def init_fs(self):
-        # Распаковываем виртуальную файловую систему
-        if os.path.exists(self.mount_point):
-            shutil.rmtree(self.mount_point)
-        os.makedirs(self.mount_point)
-
-        with zipfile.ZipFile(self.fs_path, 'r') as zip_ref:
-            zip_ref.extractall(self.mount_point)
+        # Загружаем виртуальную файловую систему в оперативную память
+        with open(self.fs_path, 'rb') as f:
+            self.zip_buffer = io.BytesIO(f.read())
+        self.zip_file = zipfile.ZipFile(self.zip_buffer)
 
     def run(self):
         while True:
@@ -64,40 +61,31 @@ class ShellEmulator:
             print(f'{cmd}: command not found')
 
     def ls(self):
-        # Список файлов в текущей директории
-        path = os.path.join(self.mount_point, self.current_dir.lstrip('/'))
+        # Список файлов в текущей директории внутри архива
+        path = self.current_dir.lstrip('/')
         try:
-            for entry in os.listdir(path):
-                print(entry)
-        except FileNotFoundError:
+            entries = {info.filename for info in self.zip_file.infolist() if info.filename.startswith(path)}
+            for entry in entries:
+                relative_entry = os.path.relpath(entry, path)
+                print(relative_entry.split('/')[0])  # Only print top-level files in the current directory
+        except KeyError:
             print(f"ls: cannot access '{self.current_dir}': No such directory")
 
     def cd(self, path):
-        # Переход в другую директорию
-        new_dir = os.path.abspath(os.path.join(self.mount_point, self.current_dir, path))
-        if os.path.isdir(new_dir):
-            self.current_dir = os.path.relpath(new_dir, self.mount_point)
+        # Переход в другую директорию внутри архива
+        new_dir = os.path.normpath(os.path.join(self.current_dir, path)).lstrip('/')
+        entries = {info.filename for info in self.zip_file.infolist()}
+        if any(entry.startswith(new_dir) for entry in entries):
+            self.current_dir = new_dir
         else:
             print(f"cd: {path}: No such directory")
 
     def mkdir(self, path):
-        # Создание директории
-        new_dir = os.path.join(self.mount_point, self.current_dir, path)
-        try:
-            os.makedirs(new_dir)
-        except FileExistsError:
-            print(f"mkdir: cannot create directory '{path}': File exists")
+        print("mkdir: cannot create directory in a read-only virtual filesystem")
 
     def chown(self, user, path):
-        # Изменение владельца файла или директории
-        target = os.path.join(self.mount_point, self.current_dir, path)
-        try:
-            uid = pwd.getpwnam(user).pw_uid
-            os.chown(target, uid, -1)
-        except KeyError:
-            print(f"chown: invalid user: '{user}'")
-        except FileNotFoundError:
-            print(f"chown: cannot access '{path}': No such file or directory")
+        print("chown: cannot change ownership in a read-only virtual filesystem")
+
 
 if __name__ == "__main__":
     emulator = ShellEmulator('config.yaml')
