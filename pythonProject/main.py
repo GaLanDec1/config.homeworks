@@ -2,7 +2,6 @@ import os
 import zipfile
 import io
 import yaml
-import pwd
 
 
 class ShellEmulator:
@@ -14,6 +13,8 @@ class ShellEmulator:
         self.current_dir = '/'
 
         # Инициализация виртуальной файловой системы
+        self.fs = {}  # Словарь для хранения файловой системы
+        self.owners = {}  # Словарь для хранения владельцев файлов
         self.init_fs()
 
     def load_config(self, config_file):
@@ -21,10 +22,18 @@ class ShellEmulator:
             return yaml.safe_load(file)
 
     def init_fs(self):
-        # Загружаем виртуальную файловую систему в оперативную память
+        # Загружаем виртуальную файловую систему из zip-архива в словари
         with open(self.fs_path, 'rb') as f:
-            self.zip_buffer = io.BytesIO(f.read())
-        self.zip_file = zipfile.ZipFile(self.zip_buffer)
+            zip_buffer = io.BytesIO(f.read())
+        with zipfile.ZipFile(zip_buffer) as zip_file:
+            for file_info in zip_file.infolist():
+                path = file_info.filename
+                if file_info.is_dir():
+                    self.fs[path] = None  # None для директорий
+                else:
+                    with zip_file.open(path) as file:
+                        self.fs[path] = file.read()  # Содержимое файла в байтах
+                self.owners[path] = 'system'  # По умолчанию владелец 'system'
 
     def run(self):
         while True:
@@ -63,28 +72,37 @@ class ShellEmulator:
     def ls(self):
         # Список файлов в текущей директории внутри архива
         path = self.current_dir.lstrip('/')
-        try:
-            entries = {info.filename for info in self.zip_file.infolist() if info.filename.startswith(path)}
-            for entry in entries:
-                relative_entry = os.path.relpath(entry, path)
-                print(relative_entry.split('/')[0])  # Only print top-level files in the current directory
-        except KeyError:
-            print(f"ls: cannot access '{self.current_dir}': No such directory")
+        entries = {p for p in self.fs.keys() if p.startswith(path)}
+        for entry in entries:
+            relative_entry = os.path.relpath(entry, path)
+            print(relative_entry.split('/')[0])  # Only print top-level files in the current directory
 
     def cd(self, path):
-        # Переход в другую директорию внутри архива
+        # Переход в другую директорию внутри словаря fs
         new_dir = os.path.normpath(os.path.join(self.current_dir, path)).lstrip('/')
-        entries = {info.filename for info in self.zip_file.infolist()}
-        if any(entry.startswith(new_dir) for entry in entries):
+        if new_dir in self.fs and self.fs[new_dir] is None:  # Проверка на существование директории
             self.current_dir = new_dir
         else:
             print(f"cd: {path}: No such directory")
 
     def mkdir(self, path):
-        print("mkdir: cannot create directory in a read-only virtual filesystem")
+        # Создание новой директории в словаре fs
+        new_dir = os.path.normpath(os.path.join(self.current_dir, path)).lstrip('/')
+        if new_dir in self.fs:
+            print(f"mkdir: cannot create directory '{path}': Directory exists")
+        else:
+            self.fs[new_dir] = None  # Добавляем директорию в fs
+            self.owners[new_dir] = self.username  # Назначаем владельца текущего пользователя
+            print(f"Directory '{path}' created.")
 
     def chown(self, user, path):
-        print("chown: cannot change ownership in a read-only virtual filesystem")
+        # Изменение владельца файла/директории в словаре owners
+        target_path = os.path.normpath(os.path.join(self.current_dir, path)).lstrip('/')
+        if target_path in self.fs:
+            self.owners[target_path] = user  # Изменяем владельца
+            print(f"Owner of '{path}' changed to {user}.")
+        else:
+            print(f"chown: cannot access '{path}': No such file or directory")
 
 
 if __name__ == "__main__":
