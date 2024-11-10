@@ -9,6 +9,6 @@
 
 **Амбарцумян Арик ИКБО-11-23**
 # Домашнее задание №3
-[Эмулятор + Тест]((https://github.com/GaLanDec1/config.homeworks/tree/main/config3)
+[Эмулятор + Тест](https://github.com/GaLanDec1/config.homeworks/tree/main/config3)
 <img width="1296" alt="Снимок экрана 2024-11-10 в 12 42 39" src="https://github.com/user-attachments/assets/2cce505d-0256-44fa-b659-20ee5dd9f9aa">
 
