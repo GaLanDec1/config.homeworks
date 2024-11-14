@@ -1,78 +1,97 @@
 import pytest
+import toml
 from config_converter import ConfigConverter, ConfigError
 
 def normalize_whitespace(text):
     """Утилита для удаления лишних пробелов и символов новой строки"""
     return "".join(text.split())
 
-def test_simple_dict_conversion():
+# Пример 1: Простой словарь конфигурации интернет-магазина
+def test_ecommerce_config():
     converter = ConfigConverter()
-    toml_data = {
-        "Item": {
-            "Name": "Widget",
-            "Price": 25
-        }
-    }
+    toml_data = toml.loads("""
+    [Product]
+    Name = "Laptop"
+    Price = 1500
+    """)
     expected_output = """
     begin
-        Item := begin
-            Name := "Widget";
-            Price := 25;
-        end;
-    end
-    """
-    generated_output = converter.generate_output(toml_data)
-    assert normalize_whitespace(generated_output) == normalize_whitespace(expected_output)
-def test_array_conversion():
-    converter = ConfigConverter()
-    toml_data = {
-        "items": [1, 2, 3, 4]
-    }
-    expected_output = "begin items := << 1, 2, 3, 4 >>; end"
-    assert converter.generate_output(toml_data).strip() == expected_output.strip()
-
-def test_nested_dict_conversion():
-    converter = ConfigConverter()
-    toml_data = {
-        "Order": {
-            "ID": 1001,
-            "Details": {
-                "Product": "Gadget",
-                "Quantity": 10
-            }
-        }
-    }
-    expected_output = """
-    begin
-        Order := begin
-            ID := 1001;
-            Details := begin
-                Product := "Gadget";
-                Quantity := 10;
-            end;
+        Product := begin
+            Name := "Laptop";
+            Price := 1500;
         end;
     end
     """
     generated_output = converter.generate_output(toml_data)
     assert normalize_whitespace(generated_output) == normalize_whitespace(expected_output)
 
-def test_constants():
-    converter = ConfigConverter(constants={"PI": 3.14})
-    toml_data = {
-        "Circle": {
-            "radius": 10,
-            "area": "{PI}"
-        }
-    }
-    expected_output = "begin Circle := begin radius := 10; area := 3.14; end; end"
-    assert converter.generate_output(toml_data).strip() == expected_output.strip()
+# Пример 2: Конфигурация логистики
+def test_logistics_config():
+    converter = ConfigConverter()
+    toml_data = toml.loads("""
+    [Shipping]
+    Warehouse = "Main"
+    Routes = ["RouteA", "RouteB", "RouteC"]
+    """)
+    expected_output = """
+    begin
+        Shipping := begin
+            Warehouse := "Main";
+            Routes := << "RouteA", "RouteB", "RouteC" >>;
+        end;
+    end
+    """
+    generated_output = converter.generate_output(toml_data)
+    assert normalize_whitespace(generated_output) == normalize_whitespace(expected_output)
 
+# Пример 3: Подстановка секретов для разных клиентов
+def test_secrets_substitution():
+    converter = ConfigConverter(constants={"Secrets": {"AccessToken": "123ABC"}})
+    toml_data = toml.loads("""
+    WebSecrets = "{Secrets}"
+    DesktopSecrets = "{Secrets}"
+    """)
+    expected_output = """
+    begin
+        Secrets := begin
+            AccessToken := "123ABC";
+        end;
+        WebSecrets := begin
+            AccessToken := "123ABC";
+        end;
+        DesktopSecrets := begin
+            AccessToken := "123ABC";
+        end;
+    end
+    """
+    generated_output = converter.generate_output(toml_data)
+    assert normalize_whitespace(generated_output) == normalize_whitespace(expected_output)
+
+# Тест вычисления выражений с константами
+def test_constant_expression_evaluation():
+    converter = ConfigConverter(constants={"PI": 3.1415})
+    toml_data = toml.loads("""
+    [Circle]
+    radius = 10
+    circumference = "{PI * radius}"
+    """)
+    expected_output = """
+    begin
+        Circle := begin
+            radius := 10;
+            circumference := 31.415;
+        end;
+    end
+    """
+    generated_output = converter.generate_output(toml_data)
+    assert normalize_whitespace(generated_output) == normalize_whitespace(expected_output)
+
+# Тест невалидного имени ключа
 def test_invalid_key_name():
     converter = ConfigConverter()
-    toml_data = {
-        "123InvalidKey": {
-            "value": 42
-        }
-    }
+    toml_data = toml.loads("""
+    ["123InvalidKey"]
+    value = 42
+    """)
     with pytest.raises(ConfigError, match="Неверное имя ключа"):
         converter.generate_output(toml_data)
