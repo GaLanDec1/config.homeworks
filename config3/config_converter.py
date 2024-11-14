@@ -1,73 +1,83 @@
-import argparse
-import toml
 import re
-import sys
+import copy
 
 class ConfigError(Exception):
+    """Класс для обработки ошибок конфигурации."""
     pass
 
 class ConfigConverter:
     def __init__(self, constants=None):
+        """Инициализация с возможностью передачи констант."""
         self.constants = constants or {}
 
-    def parse_toml_file(self, input_path):
+    def evaluate_expression(self, expression, context):
+        """Вычисляет выражение, используя переданные константы и текущий контекст."""
         try:
-            with open(input_path, 'r') as f:
-                return toml.load(f)
+            # Объединяем context и constants для поддержки всех переменных
+            full_context = {**self.constants, **context}
+            return eval(expression, {}, full_context)
         except Exception as e:
-            raise ConfigError(f"Ошибка чтения TOML файла: {e}")
+            raise ConfigError(f"Ошибка в вычислении выражения: {expression}") from e
 
-    def convert(self, data, level=0):
-        output = []
-        if isinstance(data, dict):
-            output.append("begin")
-            for key, value in data.items():
-                if not re.match(r"^[A-Za-z][_a-zA-Z0-9]*$", key):
-                    raise ConfigError(f"Неверное имя ключа: {key}")
-                output.append(f"{key} := {self.convert(value, level + 1)};")
-            output.append("end")
-        elif isinstance(data, list):
-            output.append("<< " + ", ".join(self.convert(item, level + 1) for item in data) + " >>")
-        elif isinstance(data, (int, float)):
-            output.append(str(data))
-        elif isinstance(data, str) and data.startswith("{") and data.endswith("}"):
-            const_name = data[1:-1]
-            if const_name not in self.constants:
-                raise ConfigError(f"Неизвестная константа: {const_name}")
-            output.append(str(self.constants[const_name]))
-        elif isinstance(data, str):
-            # Новая поддержка для строковых значений
-            output.append(f"\"{data}\"")  # Оборачиваем строки в кавычки
-        else:
-            raise ConfigError(f"Неподдерживаемое значение: {data}")
-        return " ".join(output)
+    def resolve_constants(self, value, context=None, delay_expressions=False):
+        """Подставляет константы и вычисляет выражения, если они есть."""
+        context = context or {}
+        full_context = {**self.constants, **context}  # Полный контекст для поиска констант
 
-    def process_constants(self, toml_data):
-        for key, value in toml_data.get("constants", {}).items():
-            if not re.match(r"^[A-Z][_a-zA-Z0-9]*$", key):
-                raise ConfigError(f"Неверное имя константы: {key}")
-            self.constants[key] = value
+        if isinstance(value, str) and value.startswith("{") and value.endswith("}"):
+            expression = value[1:-1]
+            if delay_expressions:
+                return value  # Откладываем выполнение выражения
+            return self.evaluate_expression(expression, full_context)
+        elif isinstance(value, str):
+            # Подстановка значений констант внутри строки, если указаны {ключи}
+            pattern = re.compile(r"{(\w+)}")
+            return pattern.sub(lambda match: str(full_context.get(match.group(1), match.group(0))), value)
+        elif isinstance(value, dict):
+            # Рекурсивная обработка словарей
+            return {k: self.resolve_constants(v, full_context, delay_expressions) for k, v in value.items()}
+        elif isinstance(value, list):
+            # Рекурсивная обработка списков
+            return [self.resolve_constants(item, full_context, delay_expressions) for item in value]
+        return value
 
-    def generate_output(self, toml_data):
-        if "constants" in toml_data:
-            self.process_constants(toml_data)
-        return self.convert(toml_data)
+    def format_value(self, value):
+        """Форматирует значение для вывода, обрабатывая строки и списки."""
+        if isinstance(value, str):
+            return f'"{value}"'
+        elif isinstance(value, list):
+            formatted_list = ', '.join(f'"{item}"' if isinstance(item, str) else str(item) for item in value)
+            return f"<< {formatted_list} >>"
+        return value
 
-def main():
-    parser = argparse.ArgumentParser(description="Конвертер конфигурационного языка")
-    parser.add_argument("--input", required=True, help="Путь к входному TOML-файлу")
-    parser.add_argument("--output", required=True, help="Путь к выходному файлу")
-    args = parser.parse_args()
+    def generate_output(self, data, indent=0, context=None):
+        """Рекурсивно обрабатывает входные данные и преобразует в конфигурацию."""
+        output = "begin\n"
+        indent_str = '    ' * indent  # Уровень отступов
 
-    converter = ConfigConverter()
-    try:
-        toml_data = converter.parse_toml_file(args.input)
-        output = converter.generate_output(toml_data)
-        with open(args.output, 'w') as f:
-            f.write(output)
-    except ConfigError as e:
-        sys.stderr.write(f"Ошибка: {e}\n")
-        sys.exit(1)
+        # Создаем локальный контекст на каждом уровне рекурсии
+        local_context = copy.deepcopy(context) if context else {}
+        local_context.update(self.constants)
 
-if __name__ == "__main__":
-    main()
+        # Первый проход: добавляем простые значения в локальный контекст без вычисления выражений
+        for key, value in data.items():
+            if not re.match(r"^[A-Za-z_]\w*$", key):
+                raise ConfigError(f"Неверное имя ключа: {key}")
+            # Сохраняем значение в контексте без вычисления сложных выражений
+            resolved_value = self.resolve_constants(value, local_context, delay_expressions=True)
+            local_context[key] = resolved_value
+
+        # Второй проход: вычисляем выражения, которые зависят от других переменных
+        for key, value in data.items():
+            resolved_value = self.resolve_constants(local_context[key], local_context, delay_expressions=False)
+            local_context[key] = resolved_value
+
+            # Обработка значений в зависимости от их типа
+            if isinstance(resolved_value, dict):
+                output += f"{indent_str}    {key} := {self.generate_output(resolved_value, indent + 1, local_context)};\n"
+            else:
+                formatted_value = self.format_value(resolved_value)
+                output += f"{indent_str}    {key} := {formatted_value};\n"
+
+        output += f"{indent_str}end"
+        return output
