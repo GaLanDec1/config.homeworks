@@ -1,6 +1,6 @@
 import re
 import copy
-
+import toml
 class ConfigError(Exception):
     """Класс для обработки ошибок конфигурации."""
     pass
