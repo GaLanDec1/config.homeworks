@@ -1,0 +1,17 @@
+instructions:
+- fields:
+    A: 12
+    B: 34
+  opcode: LOAD_CONST
+- fields:
+    A: 182
+    B: 570
+  opcode: LOAD_CONST
+- fields:
+    A: 113
+    B: 878
+  opcode: LOAD_CONST
+- fields:
+    A: 197
+    B: 725
+  opcode: LOAD_CONST
