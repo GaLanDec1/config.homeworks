@@ -8,30 +8,42 @@ from uvm import UVM
 
 
 @pytest.fixture
+@pytest.fixture
 def setup_files():
-    """Фикстура для создания временных файлов перед тестами и удаления после тестов."""
     asm_file = "test_program.asm"
     bin_file = "test_program.bin"
     log_file = "test_program_log.yaml"
     result_file = "test_result.yaml"
 
     # Тестовая ассемблерная программа
-    test_program = [
-        "LOAD_CONST 0x0C 34",
-        "READ_MEM 0xB6 570",
-        "WRITE_MEM 0x71 878",
-        "BITWISE_SHIFT_RIGHT 0xC5 725"
-    ]
+    test_program = """
+    LOAD_CONST 0x01 0  # Адрес начала первого вектора
+    LOAD_CONST 0x02 5  # Адрес начала второго вектора
+    LOAD_CONST 0x03 10 # Адрес для результата
+    LOAD_CONST 0x04 5  # Длина векторов
+
+    LOAD_CONST 0x05 0
+    LOOP_START:
+    READ_MEM 0x06 [0x01+0x05]
+    READ_MEM 0x07 [0x02+0x05]
+    BITWISE_SHIFT_RIGHT 0x08 [0x06+0x07]
+    WRITE_MEM 0x03 [0x08+0x05]
+    INC 0x05
+    CMP 0x05 0x04
+    JLT LOOP_START
+
+    HALT
+    """
 
     with open(asm_file, 'w') as f:
-        f.write("\n".join(test_program))
+        f.write(test_program)
 
-    yield asm_file, bin_file, log_file, result_file  # Передаем файлы тестам
+    yield asm_file, bin_file, log_file, result_file
 
-    # Удаляем файлы после тестов
     for file in [asm_file, bin_file, log_file, result_file]:
         if os.path.exists(file):
             os.remove(file)
+
 
 
 def test_assemble(setup_files):
