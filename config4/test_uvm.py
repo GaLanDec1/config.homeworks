@@ -8,7 +8,6 @@ from uvm import UVM
 
 
 @pytest.fixture
-@pytest.fixture
 def setup_files():
     asm_file = "test_program.asm"
     bin_file = "test_program.bin"
