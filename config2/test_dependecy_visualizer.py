@@ -1,64 +1,50 @@
 import pytest
-import subprocess
-from unittest import mock
-import tempfile
-import os
+from unittest.mock import patch, mock_open
+from dependency_visualizer import parse_packages_gz, build_dependency_graph, graph_to_mermaid
 
 
-# Импортируем функции из основного скрипта, например
-from dependency_visualizer import parse_args, get_dependencies, generate_mermaid_graph, visualize_graph
-
-def test_parse_args():
-    # Тестируем разбор аргументов командной строки
-    test_args = ["script.py", "/path/to/visualizer", "nginx", "3"]
-    with mock.patch("sys.argv", test_args):
-        args = parse_args()
-        assert args.visualizer_path == "/path/to/visualizer"
-        assert args.package_name == "nginx"
-        assert args.max_depth == 3
-
-
-@mock.patch("subprocess.run")
-def test_get_dependencies(mock_run):
-    # Мокаем результат subprocess для apt-cache
-    mock_run.return_value = mock.Mock(
-        returncode=0,
-        stdout="Depends: libfoo\nDepends: libbar"
+def test_parse_packages_gz():
+    mock_gz_content = (
+        "Package: pkg1\n"
+        "Depends: pkg2 (>= 1.0), pkg3\n\n"
+        "Package: pkg2\n"
+        "Depends: pkg4\n\n"
+        "Package: pkg3\n\n"
+        "Package: pkg4\n\n"
     )
-
-    # Проверка на корректное построение графа зависимостей
-    dependencies = get_dependencies("testpkg", 1, 2)
-    assert "testpkg" in dependencies
-    assert dependencies["testpkg"] == ["libfoo", "libbar"]
-    assert "libfoo" in dependencies
-    assert "libbar" in dependencies
-
-
-def test_generate_mermaid_graph():
-    # Проверяем, что генерируется корректный код для mermaid
-    dependencies = {
-        "pkg1": ["dep1", "dep2"],
-        "dep1": ["dep3"],
-        "dep2": [],
-        "dep3": []
+    with patch("gzip.open", mock_open(read_data=mock_gz_content)):
+        packages = parse_packages_gz("dummy_path")
+    expected = {
+        "pkg1": ["pkg2", "pkg3"],
+        "pkg2": ["pkg4"],
+        "pkg3": [],
+        "pkg4": [],
     }
-    mermaid_code = generate_mermaid_graph(dependencies)
-    expected_code = "graph TD\n    pkg1 --> dep1\n    pkg1 --> dep2\n    dep1 --> dep3"
-    assert mermaid_code.strip() == expected_code.strip()
+    assert packages == expected
 
 
-@mock.patch("subprocess.run")
-def test_visualize_graph(mock_run):
-    # Генерируем временный mermaid-код для теста
-    mermaid_code = "graph TD\n    pkg1 --> dep1"
-    with tempfile.NamedTemporaryFile(delete=True, suffix=".mmd") as temp_file:
-        temp_file_path = temp_file.name
+def test_build_dependency_graph():
+    packages = {
+        "pkg1": ["pkg2", "pkg3"],
+        "pkg2": ["pkg4"],
+        "pkg3": [],
+        "pkg4": [],
+    }
+    graph = build_dependency_graph("pkg1", packages, 2)
+    expected = {
+        "pkg1": ["pkg2", "pkg3"],
+        "pkg2": ["pkg4"],
+        "pkg3": [],
+        "pkg4": [],
+    }
+    assert graph == expected
 
-    # Вызываем функцию визуализации
-    visualize_graph(mermaid_code, "/path/to/visualizer")
 
-    # Проверяем, что subprocess вызван с правильными аргументами
-    mock_run.assert_called_once_with(["/path/to/visualizer", mock.ANY], check=True)
-
-    # Проверяем, что временный файл удалён после вызова функции
-    assert not os.path.exists(temp_file_path)
+def test_graph_to_mermaid():
+    graph = {
+        "pkg1": ["pkg2", "pkg3"],
+        "pkg2": ["pkg4"],
+    }
+    mermaid = graph_to_mermaid(graph)
+    expected = "graph TD\n  pkg1 --> pkg2\n  pkg1 --> pkg3\n  pkg2 --> pkg4"
+    assert mermaid.strip() == expected.strip()
