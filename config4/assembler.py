@@ -2,7 +2,6 @@ import struct
 import yaml
 import sys
 
-
 def parse_instruction(line):
     """Разбор строки команды и создание бинарной инструкции."""
     parts = line.split()
@@ -32,10 +31,9 @@ def parse_instruction(line):
     b = b_value & 0xFFFF
 
     # Упаковываем инструкцию
-    instruction = struct.pack('<BIB', a, 0, b)
+    instruction = struct.pack('<BH', a, b)
     print(f"Собрана инструкция: {instruction.hex()}")  # Отладочный вывод
     return cmd_type, instruction
-
 
 def assemble(asm_file, bin_file, log_file):
     """Сборка программы из ассемблерного файла в бинарный файл."""
@@ -60,7 +58,7 @@ def assemble(asm_file, bin_file, log_file):
                     'opcode': cmd_type,
                     'fields': {
                         'A': struct.unpack('<B', instruction[0:1])[0],
-                        'B': struct.unpack('<H', instruction[4:6])[0]  # Читаем только 2 байта поля B
+                        'B': struct.unpack('<H', instruction[1:3])[0]  # Читаем только 2 байта поля B
                     }
                 })
 
@@ -73,12 +71,11 @@ def assemble(asm_file, bin_file, log_file):
             f.write(instruction)
 
     print(f"Количество инструкций: {len(instructions)}")
-    print(f"Длина бинарного файла: {len(instructions) * 6} байт")  # 6 байт на инструкцию
+    print(f"Длина бинарного файла: {len(instructions) * 3} байт")  # 3 байта на инструкцию
 
     # Запись лог-файла
     with open(log_file, 'w') as f:
         yaml.dump(log_data, f)
-
 
 if __name__ == "__main__":
     # Проверка аргументов командной строки
